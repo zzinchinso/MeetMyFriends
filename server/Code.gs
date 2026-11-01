@@ -11,7 +11,7 @@
  *  4. 웹 앱 주소를 브라우저에서 열어 {"ok":true,"schemaVersion":2,...} 가 보이면 적용된 것입니다.
  *
  * 시트를 찾는 순서: 스크립트 속성 SPREADSHEET_ID → 이 스크립트가 붙어 있는 시트.
- * 신청은 '신청' 탭에만 저장합니다. 탭이 없으면 맨 앞에 자동으로 만들고, 이전 버전이 다른 탭에
+ * 풀 등록은 '신청' 탭, 파티 신청은 '파티신청' 탭에 분리해서 저장합니다. 탭이 없으면 맨 앞에 자동으로 만들고, 이전 버전이 다른 탭에
  * 저장해 둔 신청 행(신청ID가 있는 행)을 이 탭으로 옮깁니다. 예전 설문 응답은 건드리지 않습니다.
  * 탭 안에서 열 순서를 바꾸거나 메모용 열을 추가해도 됩니다. 제목 이름으로 찾아서 씁니다.
  * 사진은 자동으로 만들어지는 비공개 드라이브 폴더 안에 신청자별 폴더(이름_전화번호 뒤 4자리)를 만들어 저장합니다.
@@ -21,7 +21,8 @@ const SCHEMA_VERSION = 2;
 const SHEET_NAME = '신청';
 // What is stored from one application: one entry per question the page asks, plus the two consent times.
 const FIELDS = ['성별','주선자','이름','출생연도','키','생활권','직업','같은회사제외','학교','MBTI','취미','음주','흡연','종교','자기소개','이상형','상대조건','연봉','자산','추천인','연락처','개인정보동의','개인정보동의일시','프로필소개동의','프로필소개동의일시','초대코드','이메일'];
-// Column order of a newly created tab. Every column is either the answer to one question on the page
+// Column order of a newly created tab. 상대조건 stays as a blank compatibility column after the UI merge.
+// Other columns are either the answer to one question on the page
 // (사진폴더 is the answer to the photo question) or one of SYSTEM_COLUMNS; tests/contract.cjs enforces that.
 const COLUMNS = ['제출시각','심사상태','이름','성별','출생연도','키','연락처','이메일','주선자','생활권','직업','같은회사제외','학교','MBTI','취미','음주','흡연','종교','자기소개','이상형','상대조건','연봉','자산','추천인','초대코드','사진','사진폴더','프로필소개동의','프로필소개동의일시','개인정보동의','개인정보동의일시','수정일시','신청ID','접수토큰해시'];
 // What the service itself records. Everything else in COLUMNS answers a question.
@@ -92,7 +93,7 @@ function migrate_(book,target){
  const known=target.getLastRow()>1?target.getRange(2,idColumn,target.getLastRow()-1,1).getValues().map(line=>String(line[0])):[];
  let moved=0;
  book.getSheets().forEach(source=>{
-  if(source.getName()===target.getName())return;
+  if(source.getName()===target.getName()||source.getName()===PARTY_SHEET_NAME)return;
   const width=source.getLastColumn(),last=source.getLastRow();
   if(!width||last<2)return;
   const head=source.getRange(1,1,1,width).getValues()[0].map(String);
@@ -231,13 +232,52 @@ function setup(){
 /** 웹 앱 주소를 브라우저로 열었을 때 보이는 상태 확인용 응답입니다. 아무것도 저장하지 않습니다. */
 function doGet(){return json_({ok:true,schemaVersion:SCHEMA_VERSION,service:'신청 접수 서버',sheet:SHEET_NAME,photoFolders:true,accountAccess:true});}
 
+// Party applications use an independent tab and ID column, never the matching-pool sheet.
+const PARTY_SHEET_NAME='파티신청';
+const PARTY_EVENTS={
+ 'pepero-2026-11-14':{title:'11/14 빼빼로 데이 파티',accepting:true,closedGenders:['여성']}
+};
+const PARTY_COLUMNS=['접수시각','행사ID','행사명','성별','이름','출생연도','자기소개','연락처','개인정보동의','개인정보동의일시','신청상태','파티신청ID'];
+function partySubmit_(data){
+ const event=PARTY_EVENTS[String(data.행사ID||'')];
+ if(!event)throw reject_('신청할 파티를 확인해주세요.');
+ const id=String(data.신청ID||'');
+ if(!/^[a-f0-9-]{36}$/.test(id))throw reject_('유효한 신청번호가 필요합니다.');
+ const said=k=>String(data[k]||'').trim();
+ if(['성별','이름','출생연도','자기소개','연락처'].some(k=>!said(k))||data.개인정보동의!==true)throw reject_('필수 입력과 개인정보 동의를 확인해주세요.');
+ if(!['남성','여성'].includes(data.성별))throw reject_('성별을 확인해주세요.');
+ const year=said('출생연도');
+ if(!/^\d{4}$/.test(year)||+year<1900||+year>new Date().getFullYear()-19)throw reject_('출생연도 4자리를 확인해주세요. 출생연도 기준 19세 이상만 신청할 수 있어요.');
+ const contact=said('연락처');
+ if(!/^01[016789]\d{7,8}$/.test(contact.replace(/[-\s]/g,''))&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact))throw reject_('안내받을 휴대폰 번호 또는 이메일 주소를 확인해주세요.');
+ if(said('이름').length>100||contact.length>200||said('자기소개').length>2000)throw reject_('입력 가능한 길이를 초과했습니다.');
+ const book=book_();let sheet=book.getSheetByName(PARTY_SHEET_NAME);
+ // A retry with the same application ID confirms the existing row, even after recruitment closes.
+ if(sheet&&sheet.getLastRow()>1){
+  const heads=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0].map(String);
+  const idAt=heads.indexOf('파티신청ID'),eventAt=heads.indexOf('행사ID');
+  if(idAt>=0){const rows=sheet.getRange(2,1,sheet.getLastRow()-1,heads.length).getValues();if(rows.some(row=>String(row[idAt])===id&&String(row[eventAt])===String(data.행사ID)))return json_({ok:true,schemaVersion:SCHEMA_VERSION,id});}
+ }
+ if(!event.accepting)throw reject_('이번 파티는 모집이 마감됐어요.');
+ if(event.closedGenders.includes(data.성별))throw reject_('여성 신청은 마감됐어요. 다음 파티 소식을 확인해주세요.');
+ if(!sheet)sheet=book.insertSheet(PARTY_SHEET_NAME);
+ const headers=sheet.getLastColumn()?sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0].map(String):[];
+ PARTY_COLUMNS.forEach(k=>{if(!headers.includes(k))headers.push(k);});
+ if(sheet.getMaxColumns()<headers.length)sheet.insertColumnsAfter(sheet.getMaxColumns(),headers.length-sheet.getMaxColumns());
+ sheet.getRange(1,1,1,headers.length).setNumberFormat('@').setValues([headers]);sheet.setFrozenRows(1);
+ const record={접수시각:stamp_(),행사ID:String(data.행사ID),행사명:event.title,성별:data.성별,이름:said('이름'),출생연도:year,자기소개:said('자기소개'),연락처:contact,개인정보동의:'true',개인정보동의일시:new Date().toISOString(),신청상태:'pending',파티신청ID:id};
+ write_(sheet,sheet.getLastRow()+1,[headers.map(k=>safe_(record[k]||''))]);
+ return json_({ok:true,schemaVersion:SCHEMA_VERSION,id});
+}
+
 function doPost(e){
  const lock=LockService.getScriptLock();
  try{
   const data=JSON.parse(e.postData.contents);
-  if(data._action==='capabilities')return json_({ok:true,schemaVersion:SCHEMA_VERSION,profileIntroductionConsent:true,emailCollection:true,selfIntroduction:true,partnerCondition:true,accountAccess:true}); // accountAccess stays for pages cached before passwords were removed
+  if(data._action==='capabilities')return json_({ok:true,schemaVersion:SCHEMA_VERSION,profileIntroductionConsent:true,emailCollection:true,selfIntroduction:true,partnerCondition:true,combinedPreferences:true,accountAccess:true,partyApplications:true,partyEvents:PARTY_EVENTS}); // accountAccess stays for pages cached before passwords were removed
   if(data.website)throw Error('요청을 처리할 수 없습니다.');
   lock.waitLock(30000);
+  if(data._action==='partySubmit')return partySubmit_(data);
   const props=PropertiesService.getScriptProperties();
   const sheet=sheet_();
   const headers=headers_(sheet);
@@ -274,8 +314,8 @@ function doPost(e){
   const said=k=>String(data[k]||'').trim();
   // Partner conditions are one answer (상대조건). A page cached from before the merge still sends the two old
   // answers; they are stored together in the same column.
-  if(!said('상대조건')&&said('제외조건')&&said('중요조건'))data.상대조건=partner_(data.제외조건,data.중요조건);
-  if(mandatory.some(k=>!said(k))||!said('상대조건')||data.개인정보동의!==true)throw reject_('필수 입력 및 개인정보 동의를 확인해주세요.');
+  if(data.상대조건==null&&said('제외조건')&&said('중요조건'))data.상대조건=partner_(data.제외조건,data.중요조건);
+  if(mandatory.some(k=>!said(k))||data.개인정보동의!==true)throw reject_('필수 입력 및 개인정보 동의를 확인해주세요.');
   if(!['여성','남성'].includes(data.성별)||!['f','m'].includes(data.주선자))throw reject_('선택값을 확인해주세요.');
   if(data.이메일!=null&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(data.이메일).trim()))throw reject_('이메일 주소를 확인해주세요.');
   const phone=String(data.연락처).replace(/[-\s]/g,'');
