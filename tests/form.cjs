@@ -15,11 +15,11 @@ const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42
   await page.route('https://script.google.com/**',async route=>{const payload=route.request().postDataJSON();sent.push(payload);if(failNext&&payload._action==='submit'){failNext=false;return route.abort();}await route.fulfill({json:env.post(payload)});});
   await page.route('http://localhost/**',async route=>{const name=new URL(route.request().url()).pathname.slice(1)||'index.html';await route.fulfill({path:root+'/'+name,contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.woff2')?'font/woff2':name.endsWith('.png')?'image/png':'text/html'});});
   await page.goto('http://localhost/index.html');await page.locator('#openPool').waitFor();
-  assert.equal(await page.locator('.intro-slide').count(),3);assert.equal(await page.locator('.home-link').count(),2);assert.equal(await page.locator('footer').isVisible(),false);
+  assert.equal(await page.locator('.intro-slide').count(),3);assert.equal(await page.locator('.home-link').count(),3);assert.equal(await page.locator('footer').isVisible(),false);
   await page.evaluate(()=>document.fonts.ready);assert(await page.evaluate(()=>document.fonts.check('700 52px Pretendard')));
   if(!optional&&process.env.SCREENSHOT_DIR)await page.screenshot({path:process.env.SCREENSHOT_DIR+'/home-mobile.png'});
-  await page.getByRole('button',{name:'다음 소개',exact:true}).click();assert.equal(await page.locator('[data-intro="1"]').getAttribute('aria-current'),'true');
-  await page.getByRole('button',{name:'소개 3 보기',exact:true}).click();assert.equal(await page.locator('[data-intro="2"]').getAttribute('aria-current'),'true');
+  await page.getByRole('button',{name:'다음 소개',exact:true}).click();await page.waitForFunction(()=>document.querySelector('[data-intro="1"]').getAttribute('aria-current')==='true'&&Math.abs(document.querySelector('#introSlides').scrollLeft-document.querySelector('#introSlides').clientWidth)<2);
+  await page.getByRole('button',{name:'소개 3 보기',exact:true}).click();await page.waitForFunction(()=>document.querySelector('[data-intro="2"]').getAttribute('aria-current')==='true'&&Math.abs(document.querySelector('#introSlides').scrollLeft-document.querySelector('#introSlides').clientWidth*2)<2);
   await page.getByRole('link',{name:/11\/14 빼빼로 데이 파티/}).click();await page.locator('.party-poster').waitFor();assert.equal(await page.locator('.party-poster').count(),1);assert.equal(await page.getByRole('button',{name:'신청하기',exact:true}).isEnabled(),true);
   if(!optional&&process.env.SCREENSHOT_DIR)await page.screenshot({path:process.env.SCREENSHOT_DIR+'/party-mobile.png',fullPage:true});
   await page.getByRole('link',{name:'‹ 처음으로',exact:true}).click();await page.locator('#openPool').click();await page.locator('#questionTitle').waitFor();

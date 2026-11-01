@@ -882,7 +882,7 @@ body.home-mode main { max-width: 560px; padding: 48px 24px 36px; }
  .party-posters .party-poster { border-radius: 12px; }
  .party-mode:not(.party-poster-mode) .party-page { padding-top: 20px; }
  .party-mode .review-step .summary>div { grid-template-columns: 78px minmax(0,1fr) 40px; }
- .party-link strong { font-size: 16px; }
+
 }
 
 /* Shared form typography: title 28/36, body 16/26, supporting text 14/22. */
@@ -1044,3 +1044,22 @@ body.home-mode main { max-width: 560px; padding: 48px 24px 36px; }
 .wizard .intro-choice .choice-copy { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; gap: 6px; }
 .wizard .intro-choice strong { font-size: 16px; line-height: 26px; font-weight: 600; }
 .wizard .intro-choice small { font-size: 14px; line-height: 22px; font-weight: 400; color: var(--muted); word-break: keep-all; overflow-wrap: anywhere; }
+
+.intro-slide:first-child h1 { font-size: clamp(16px, 5vw, 26px); line-height: 1.5; white-space: nowrap; }
+
+
+/* One shared card layout for every homepage destination. */
+.home-links { display: grid; grid-auto-rows: 1fr; }
+.instagram-link { background: var(--card); color: var(--ink); border-color: var(--border); }
+.instagram-link:hover { border-color: var(--action); background: var(--canvas); }
+.instagram-copy { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.instagram-icon { display: block; flex: 0 0 22px; }
+.home-link .link-arrow { flex: 0 0 24px; width: 24px; text-align: center; line-height: 1; }
+
+/* Two primary destinations and a compact social link. */
+.home-links .home-link { font-family: 'Pretendard',var(--font); text-align: left; }
+.home-links .home-link strong { font-weight: 600; }
+.instagram-link { width: 100%; max-width: 100%; min-height: 48px; margin: 16px auto 0; padding: 10px 16px; gap: 12px; font-family: 'Pretendard',var(--font); }
+.instagram-link strong { font-size: 14px; line-height: 22px; font-weight: 500; }
+.instagram-link .instagram-copy { gap: 8px; }
+.instagram-link .instagram-icon { width: 20px; height: 20px; flex-basis: 20px; }
