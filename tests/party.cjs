@@ -7,9 +7,16 @@ const payload=()=>({_action:'partySubmit',행사ID:event,신청ID:crypto.randomU
  const env=environment({sheets:[fakeSheet('설문응답',[['제출시각','성별','연령대','유입경로','만족도','유용한점','추천의향','좋았던점','개선점']])]});env.setup();
  assert(env.post({_action:'capabilities'}).partyApplications);
  for(const bad of [{성별:'여성'},{성별:'기타'},{행사ID:'unknown'},{출생연도:'2099'},{연락처:'invalid'},{자기소개:''},{개인정보동의:false},{이름:'x'.repeat(101)}])assert.equal(env.post({...payload(),...bad}).ok,false,JSON.stringify(bad));
- assert(!env.tab('파티신청'),'invalid requests must not create a party tab');
- const p=payload();p.이름='=formula';const first=env.post(p),second=env.post(p);assert(first.ok);assert.equal(second.id,first.id);assert.equal(env.tab('파티신청')._data.length,2);assert.equal(env.tab('파티신청')._data[1][4],'=formula');
- env.setup();assert.equal(env.tab('파티신청')._data.length,2,'pool setup must never migrate party records');assert.equal(env.tab('신청')._data.length,1,'party records must not enter the pool');
+ assert(!env.tab('11/14'),'invalid requests must not create a party tab');
+ const p=payload();p.이름='=formula';const first=env.post(p),second=env.post(p);assert(first.ok);assert.equal(second.id,first.id);assert.equal(env.tab('11/14')._data.length,2);assert.equal(env.tab('11/14')._data[1][4],'=formula');
+ env.setup();assert.equal(env.tab('11/14')._data.length,2,'pool setup must never migrate party records');assert.equal(env.tab('신청')._data.length,1,'party records must not enter the pool');
+ assert(!env.tab('파티신청'),'the generic party tab is not created when the event names its own');
+ { // an operator-made 11/14 tab keeps its own titles and order; missing ones are appended after the last real title
+  const own=environment({sheets:[fakeSheet('11/14',[['이름','연락처','메모','','']])]});
+  const saved=own.post(payload());assert(saved.ok,JSON.stringify(saved));
+  const head=own.tab('11/14')._data[0];assert.deepEqual(head.slice(0,3),['이름','연락처','메모']);assert(head.includes('파티신청ID')&&head.includes('행사명'));assert(!head.slice(0,head.indexOf('파티신청ID')).includes(''),'no blank title is left between columns');
+  const row=own.tab('11/14')._data[1];assert.equal(row[0],'파티테스트');assert.equal(row[1],'01012345678');assert.equal(row[head.indexOf('행사명')],'11/14 빼빼로 데이 파티');
+ }
  const browser=await chromium.launch({...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{}),headless:true});
  try{
  const context=await browser.newContext({viewport:{width:390,height:844}}),page=await context.newPage();let sent=[],failNext=true,oldServer=false;const errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -29,7 +36,7 @@ const payload=()=>({_action:'partySubmit',행사ID:event,신청ID:crypto.randomU
  assert.equal(await page.locator('.summary>div').count(),5);await page.getByRole('button',{name:'이름 수정',exact:true}).click();await page.locator('[data-key=이름]').fill('김파티');await page.locator('#next').click();await page.locator('.review-step').waitFor();
  await page.locator('#next').click();await page.waitForFunction(()=>document.querySelector('#next')?.textContent==='다시 신청하기');assert((await page.locator('.summary').textContent()).includes('김파티'));
  await page.locator('#next').click();await page.getByRole('heading',{name:'파티 신청이 접수됐어요.',exact:true}).waitFor();
- const attempts=sent.filter(p=>p._action==='partySubmit');assert.equal(attempts.length,2);assert.equal(attempts[0].신청ID,attempts[1].신청ID);assert.equal(env.tab('파티신청')._data.length,3);assert.equal(env.tab('신청')._data.length,1);
+ const attempts=sent.filter(p=>p._action==='partySubmit');assert.equal(attempts.length,2);assert.equal(attempts[0].신청ID,attempts[1].신청ID);assert.equal(env.tab('11/14')._data.length,3);assert.equal(env.tab('신청')._data.length,1);
  await page.reload();await page.getByRole('heading',{name:'파티 신청이 접수됐어요.',exact:true}).waitFor();
  // A legacy deployed server must never yield a false success.
  oldServer=true;await page.evaluate(()=>sessionStorage.clear());await page.goto('http://localhost/party.html?view=apply');
