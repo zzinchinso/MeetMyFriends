@@ -17,13 +17,19 @@ The frontend and `server/Code.gs` must be deployed together. The repository does
 Applicants who still have their previous receipt open in that browser can open **내 정보 보기** and set a password from the profile screen. An applicant without that receipt must use the account recovery channel provided by the operator; name and phone alone are not accepted as proof of ownership.
 
 
+## 저장 위치 (시트 · 드라이브)
+
+- 풀 등록 → 운영 시트의 `신청` 탭, 파티 신청 → 행사별 탭(`11/14`). 시트는 스크립트 속성 `SPREADSHEET_ID` → `server/Code.gs`의 `DEFAULT_SPREADSHEET_ID` → 스크립트가 붙은 시트 순으로 찾습니다.
+- 사진 → 드라이브 폴더. 스크립트 속성 `PHOTO_FOLDER_ID` → `DEFAULT_PHOTO_FOLDER_ID` → 없으면 자동 생성. 신청자 사진이 담기므로 서버가 저장 전에 폴더를 비공개로 맞춥니다(링크 공유가 켜져 있으면 꺼집니다).
+- 프런트엔드(GitHub Pages)만 배포하면 서버는 바뀌지 않습니다. `server/Code.gs`를 Apps Script에 붙이고 새 버전으로 재배포해야 위 저장 위치가 적용됩니다. 웹 앱 주소를 열었을 때 `partyApplications: true`, `partySheets`가 보이면 적용된 것입니다.
+
 ## 11/14 파티 신청
 
 - 홈의 `11/14 빼빼로 데이 파티`에서 `party.html`로 이동합니다. 상세 화면은 제공된 포스터와 신청하기 버튼으로 구성됩니다.
 - 포스터 목록은 `party-config.js`의 `PARTY_EVENT.posters`입니다. 두 번째 이미지가 준비되면 여기에 파일 경로와 설명을 추가합니다.
 - 약식 신청은 성별, 이름, 출생연도, 자기소개, 연락처(휴대폰 또는 이메일), 필수 수집·이용 동의를 받습니다. 풀 등록과 별개의 신청입니다.
 - 여성 마감은 현재 화면 설정과 서버 `PARTY_EVENTS` 양쪽에 적용되어 있습니다. 모집 상태를 바꿀 때 두 곳을 함께 갱신합니다.
-- 서버의 `_action: partySubmit`은 같은 스프레드시트의 `파티신청` 탭을 자동으로 만듭니다. `파티신청ID`로 재시도를 중복 저장하지 않고, 풀 이전 작업에서 이 탭을 제외합니다. 참가 승인과 결제는 별도 운영 절차입니다.
+- 서버의 `_action: partySubmit`은 같은 스프레드시트에서 행사별 탭(`PARTY_EVENTS[...].sheet`, 11/14 파티는 `11/14` 탭)에 저장합니다. 탭이 없으면 자동으로 만들고, 운영자가 미리 만든 탭이면 기존 열 제목을 그대로 두고 빠진 열만 뒤에 붙입니다. `파티신청ID`로 재시도를 중복 저장하지 않고, 풀 이전 작업에서 파티 탭을 제외합니다. 참가 승인과 결제는 별도 운영 절차입니다.
 
 ### 실제 접수 연결에 필요한 배포
 
@@ -32,7 +38,7 @@ Applicants who still have their previous receipt open in that browser can open *
 1. 기존 웹 앱의 Apps Script 편집기에서 `server/Code.gs` 전체를 반영합니다.
 2. 배포 관리에서 기존 웹 앱을 새 버전으로 업데이트하여 주소를 유지합니다.
 3. capabilities 응답의 `partyApplications: true`를 확인합니다.
-4. 파티 제출이 `파티신청` 탭에 저장되고 기존 `신청` 탭을 건드리지 않는지 확인합니다.
+4. 파티 제출이 `11/14` 탭에 저장되고 기존 `신청` 탭을 건드리지 않는지 확인합니다.
 
 기존 서버가 파티 기능을 지원하지 않으면 신청서는 성공으로 표시하지 않고 입력을 보존한 채 연결 안내를 보여줍니다. `?demo=1`은 서버로 전송하지 않습니다.
 

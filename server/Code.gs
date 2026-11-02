@@ -10,15 +10,19 @@
  *     기존 배포를 수정해야 웹 앱 주소가 그대로 유지됩니다. 실행: 나 / 액세스 권한: 모든 사용자.
  *  4. 웹 앱 주소를 브라우저에서 열어 {"ok":true,"schemaVersion":2,...} 가 보이면 적용된 것입니다.
  *
- * 시트를 찾는 순서: 스크립트 속성 SPREADSHEET_ID → 이 스크립트가 붙어 있는 시트.
- * 풀 등록은 '신청' 탭, 파티 신청은 '파티신청' 탭에 분리해서 저장합니다. 탭이 없으면 맨 앞에 자동으로 만들고, 이전 버전이 다른 탭에
- * 저장해 둔 신청 행(신청ID가 있는 행)을 이 탭으로 옮깁니다. 예전 설문 응답은 건드리지 않습니다.
- * 탭 안에서 열 순서를 바꾸거나 메모용 열을 추가해도 됩니다. 제목 이름으로 찾아서 씁니다.
- * 사진은 자동으로 만들어지는 비공개 드라이브 폴더 안에 신청자별 폴더(이름_전화번호 뒤 4자리)를 만들어 저장합니다.
+ * 시트를 찾는 순서: 스크립트 속성 SPREADSHEET_ID → 아래 DEFAULT_SPREADSHEET_ID(운영 시트) → 이 스크립트가 붙어 있는 시트.
+ * 풀 등록은 '신청' 탭, 파티 신청은 행사별 탭(PARTY_EVENTS의 sheet, 11/14 파티는 '11/14' 탭)에 분리해서 저장합니다.
+ * '신청' 탭이 없으면 맨 앞에 자동으로 만들고, 이전 버전이 다른 탭에 저장해 둔 신청 행(신청ID가 있는 행)을 이 탭으로 옮깁니다.
+ * 예전 설문 응답은 건드리지 않습니다. 탭 안에서 열 순서를 바꾸거나 메모용 열을 추가해도 됩니다. 제목 이름으로 찾아서 씁니다.
+ * 사진은 드라이브 폴더(스크립트 속성 PHOTO_FOLDER_ID → 아래 DEFAULT_PHOTO_FOLDER_ID → 없으면 자동 생성) 안에
+ * 신청자별 폴더(이름_전화번호 뒤 4자리)를 만들어 저장합니다. 신청자 사진이 담기므로 폴더는 비공개로 유지합니다(저장 전에 비공개로 맞춥니다).
  * 시트의 '사진폴더' 열에 그 폴더로 가는 링크가, '사진' 열에는 파일 ID와 원래 파일명이 남습니다.
  */
 const SCHEMA_VERSION = 2;
 const SHEET_NAME = '신청';
+// 운영 시트와 사진 폴더. 스크립트 속성이 비어 있을 때 쓰는 기본값이며, 다른 시트/폴더로 바꾸려면 속성을 넣거나 이 값을 고칩니다.
+const DEFAULT_SPREADSHEET_ID = '1_-CoiduMmu3F-ntHG3xZqkbepBpq-_z7WM-UZry9TCc';
+const DEFAULT_PHOTO_FOLDER_ID = '17Jtl104lCkY8QYyJRHNXPeR5UoAi5Rjr';
 // What is stored from one application: one entry per question the page asks, plus the two consent times.
 const FIELDS = ['성별','주선자','이름','출생연도','키','생활권','직업','같은회사제외','학교','MBTI','취미','음주','흡연','종교','자기소개','이상형','상대조건','연봉','자산','추천인','연락처','개인정보동의','개인정보동의일시','프로필소개동의','프로필소개동의일시','초대코드','이메일'];
 // Column order of a newly created tab. 상대조건 stays as a blank compatibility column after the UI merge.
@@ -45,10 +49,21 @@ function safe_(value){const text=String(value==null?'':value);return /^[=+\-@]/.
 function stamp_(date){return Utilities.formatDate(date||new Date(),Session.getScriptTimeZone(),'yyyy-MM-dd HH:mm:ss');}
 function text_(value){return value instanceof Date?stamp_(value):safe_(value);}
 
+// The configured sheet (property, then the default) wins over the bound one, so a script attached to an older
+// spreadsheet still writes into the operating sheet. The default is tried gently: when this account cannot open it,
+// the bound spreadsheet is used instead.
+let book_cache_=null;
 function book_(){
+ if(book_cache_)return book_cache_;
  const id=PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
- const book=id?SpreadsheetApp.openById(id):SpreadsheetApp.getActiveSpreadsheet();
+ let book=null;
+ if(id)book=SpreadsheetApp.openById(id);
+ else{
+  try{book=SpreadsheetApp.openById(DEFAULT_SPREADSHEET_ID);}catch(error){console.warn('기본 시트를 열지 못해 연결된 시트를 사용합니다: '+error);book=null;}
+  if(!book)book=SpreadsheetApp.getActiveSpreadsheet();
+ }
  if(!book)throw Error('시트를 찾지 못했습니다. 시트의 확장 프로그램 → Apps Script에서 연 프로젝트인지 확인하거나, 스크립트 속성 SPREADSHEET_ID에 시트 ID를 넣어주세요.');
+ book_cache_=book;
  return book;
 }
 
@@ -93,7 +108,7 @@ function migrate_(book,target){
  const known=target.getLastRow()>1?target.getRange(2,idColumn,target.getLastRow()-1,1).getValues().map(line=>String(line[0])):[];
  let moved=0;
  book.getSheets().forEach(source=>{
-  if(source.getName()===target.getName()||source.getName()===PARTY_SHEET_NAME)return;
+  if(source.getName()===target.getName()||partySheetNames_().includes(source.getName()))return;
   const width=source.getLastColumn(),last=source.getLastRow();
   if(!width||last<2)return;
   const head=source.getRange(1,1,1,width).getValues()[0].map(String);
@@ -142,8 +157,11 @@ function photoFolder_(){
  const props=PropertiesService.getScriptProperties();
  const id=props.getProperty('PHOTO_FOLDER_ID');
  let folder=null;
- if(id){try{folder=DriveApp.getFolderById(id);}catch(error){folder=null;}}
- if(!folder){folder=DriveApp.createFolder('친친소 비공개 신청 사진');private_(folder);props.setProperty('PHOTO_FOLDER_ID',folder.getId());}
+ if(id){try{folder=DriveApp.getFolderById(id);if(folder.isTrashed())folder=null;}catch(error){folder=null;}}
+ if(!folder&&DEFAULT_PHOTO_FOLDER_ID){try{folder=DriveApp.getFolderById(DEFAULT_PHOTO_FOLDER_ID);if(folder.isTrashed())folder=null;}catch(error){console.warn('기본 사진 폴더를 열지 못했습니다: '+error);folder=null;}}
+ if(!folder){folder=DriveApp.createFolder('친친소 비공개 신청 사진');props.setProperty('PHOTO_FOLDER_ID',folder.getId());}
+ // Applicant photos live here, so a folder that was shared (e.g. by link) is set back to private before anything is saved.
+ if(folder.getSharingAccess()!==DriveApp.Access.PRIVATE)private_(folder);
  if(folder.getSharingAccess()!==DriveApp.Access.PRIVATE)throw Error('사진 저장 폴더의 비공개 설정이 필요합니다.');
  return folder;
 }
@@ -224,20 +242,27 @@ function setup(){
  const folder=photoFolder_();
  const organized=organize_(sheet);
  const tidy=retire_(sheet);
- const message='준비 완료 · 시트 "'+sheet.getParent().getName()+'" / 탭 "'+sheet.getName()+'" / 열 '+headers_(sheet).length+'개 / 신청 '+Math.max(0,sheet.getLastRow()-1)+'건'+(moved?' (이번에 옮긴 신청 '+moved+'건)':'')+' · 사진 폴더 "'+folder.getName()+'" (비공개)'+(organized?' / 신청자별 폴더로 정리한 신청 '+organized+'건':'')+(tidy.removed.length?' · 더 이상 묻지 않아 지운 열: '+tidy.removed.join(', '):'')+(tidy.kept.length?' · 이전 값이 있어 남겨둔 열: '+tidy.kept.join(', ')+' (필요 없으면 열을 직접 삭제하세요)':'');
+ const parties=Object.keys(PARTY_EVENTS).map(k=>PARTY_EVENTS[k].title+' → 탭 "'+partySheetName_(PARTY_EVENTS[k])+'"').join(', ');
+ const message='준비 완료 · 시트 "'+sheet.getParent().getName()+'" / 탭 "'+sheet.getName()+'" / 열 '+headers_(sheet).length+'개 / 신청 '+Math.max(0,sheet.getLastRow()-1)+'건'+(moved?' (이번에 옮긴 신청 '+moved+'건)':'')+' · 사진 폴더 "'+folder.getName()+'" (비공개)'+(organized?' / 신청자별 폴더로 정리한 신청 '+organized+'건':'')+(parties?' · 파티 신청: '+parties:'')+(tidy.removed.length?' · 더 이상 묻지 않아 지운 열: '+tidy.removed.join(', '):'')+(tidy.kept.length?' · 이전 값이 있어 남겨둔 열: '+tidy.kept.join(', ')+' (필요 없으면 열을 직접 삭제하세요)':'');
  console.log(message);
  return message;
 }
 
 /** 웹 앱 주소를 브라우저로 열었을 때 보이는 상태 확인용 응답입니다. 아무것도 저장하지 않습니다. */
-function doGet(){return json_({ok:true,schemaVersion:SCHEMA_VERSION,service:'신청 접수 서버',sheet:SHEET_NAME,photoFolders:true,accountAccess:true});}
+function doGet(){
+ const partySheets={};Object.keys(PARTY_EVENTS).forEach(k=>partySheets[k]=partySheetName_(PARTY_EVENTS[k]));
+ return json_({ok:true,schemaVersion:SCHEMA_VERSION,service:'신청 접수 서버',sheet:SHEET_NAME,photoFolders:true,accountAccess:true,partyApplications:true,partySheets});
+}
 
-// Party applications use an independent tab and ID column, never the matching-pool sheet.
+// Party applications use an independent tab per event and their own ID column, never the matching-pool sheet.
+// `sheet` is the tab the event's applications go to; an event without one falls back to PARTY_SHEET_NAME.
 const PARTY_SHEET_NAME='파티신청';
 const PARTY_EVENTS={
- 'pepero-2026-11-14':{title:'11/14 빼빼로 데이 파티',accepting:true,closedGenders:['여성']}
+ 'pepero-2026-11-14':{title:'11/14 빼빼로 데이 파티',sheet:'11/14',accepting:true,closedGenders:['여성']}
 };
 const PARTY_COLUMNS=['접수시각','행사ID','행사명','성별','이름','출생연도','자기소개','연락처','개인정보동의','개인정보동의일시','신청상태','파티신청ID'];
+function partySheetName_(event){return String((event&&event.sheet)||PARTY_SHEET_NAME);}
+function partySheetNames_(){const names=[PARTY_SHEET_NAME];Object.keys(PARTY_EVENTS).forEach(k=>{const n=partySheetName_(PARTY_EVENTS[k]);if(!names.includes(n))names.push(n);});return names;}
 function partySubmit_(data){
  const event=PARTY_EVENTS[String(data.행사ID||'')];
  if(!event)throw reject_('신청할 파티를 확인해주세요.');
@@ -251,17 +276,19 @@ function partySubmit_(data){
  const contact=said('연락처');
  if(!/^01[016789]\d{7,8}$/.test(contact.replace(/[-\s]/g,''))&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact))throw reject_('안내받을 휴대폰 번호 또는 이메일 주소를 확인해주세요.');
  if(said('이름').length>100||contact.length>200||said('자기소개').length>2000)throw reject_('입력 가능한 길이를 초과했습니다.');
- const book=book_();let sheet=book.getSheetByName(PARTY_SHEET_NAME);
+ const book=book_(),sheetName=partySheetName_(event);let sheet=book.getSheetByName(sheetName);
  // A retry with the same application ID confirms the existing row, even after recruitment closes.
- if(sheet&&sheet.getLastRow()>1){
+ if(sheet&&sheet.getLastRow()>1&&sheet.getLastColumn()){
   const heads=sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0].map(String);
   const idAt=heads.indexOf('파티신청ID'),eventAt=heads.indexOf('행사ID');
-  if(idAt>=0){const rows=sheet.getRange(2,1,sheet.getLastRow()-1,heads.length).getValues();if(rows.some(row=>String(row[idAt])===id&&String(row[eventAt])===String(data.행사ID)))return json_({ok:true,schemaVersion:SCHEMA_VERSION,id});}
+  if(idAt>=0){const rows=sheet.getRange(2,1,sheet.getLastRow()-1,heads.length).getValues();if(rows.some(row=>String(row[idAt])===id&&(eventAt<0||String(row[eventAt])===String(data.행사ID))))return json_({ok:true,schemaVersion:SCHEMA_VERSION,id});}
  }
  if(!event.accepting)throw reject_('이번 파티는 모집이 마감됐어요.');
  if(event.closedGenders.includes(data.성별))throw reject_('여성 신청은 마감됐어요. 다음 파티 소식을 확인해주세요.');
- if(!sheet)sheet=book.insertSheet(PARTY_SHEET_NAME);
- const headers=sheet.getLastColumn()?sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0].map(String):[];
+ if(!sheet)sheet=book.insertSheet(sheetName);
+ // An operator-made tab keeps its own column titles; missing ones are appended so every answer has a place.
+ const headers=sheet.getLastColumn()?sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0].map(v=>String(v==null?'':v).trim()):[];
+ while(headers.length&&!headers[headers.length-1])headers.pop();
  PARTY_COLUMNS.forEach(k=>{if(!headers.includes(k))headers.push(k);});
  if(sheet.getMaxColumns()<headers.length)sheet.insertColumnsAfter(sheet.getMaxColumns(),headers.length-sheet.getMaxColumns());
  sheet.getRange(1,1,1,headers.length).setNumberFormat('@').setValues([headers]);sheet.setFrozenRows(1);

@@ -28,8 +28,8 @@ const linkTo=folder=>'https://drive.google.com/drive/folders/'+folder.getId();
 
 { // health check and capability probe store nothing and do not create the tab
  const env=environment({sheets:[surveyTabWithApplication()],properties:{RECEIPT_SECRET:SECRET}});
- assert.deepEqual(env.get(),{ok:true,schemaVersion:2,service:'신청 접수 서버',sheet:'신청',photoFolders:true});
- assert.deepEqual(env.post({_action:'capabilities'}),{ok:true,schemaVersion:2,profileIntroductionConsent:true,emailCollection:true,selfIntroduction:true,partnerCondition:true});
+ assert.deepEqual(env.get(),{ok:true,schemaVersion:2,service:'신청 접수 서버',sheet:'신청',photoFolders:true,accountAccess:true,partyApplications:true,partySheets:{'pepero-2026-11-14':'11/14'}});
+ const caps=env.post({_action:'capabilities'});assert.equal(caps.ok,true);assert.equal(caps.schemaVersion,2);for(const k of ['profileIntroductionConsent','emailCollection','selfIntroduction','partnerCondition','combinedPreferences','accountAccess','partyApplications'])assert.equal(caps[k],true,k);assert(caps.partyEvents['pepero-2026-11-14']);
  assert.equal(env.sheets.length,1);assert.equal(env.tab('응답')._data.length,6);assert.equal(env.folders.size,0);
  console.log('PASS: doGet and capabilities answer schemaVersion 2 without creating the tab, a folder, or touching the sheet.');
 }
@@ -184,9 +184,9 @@ const linkTo=folder=>'https://drive.google.com/drive/folders/'+folder.getId();
  assert.equal(query().자기소개,'잘 웃고 리액션이 좋아');assert.equal(query().상대조건,'=비흡연, 연락이 잘 되는 사람');
  // skipping the self-PR question sends an empty string, which clears an earlier answer on edit
  assert(env.post(current({_action:'update',_token:saved.token,자기소개:''})).ok);assert.equal(query().자기소개,'');assert.equal(query().상대조건,'=비흡연, 연락이 잘 되는 사람');
- // the partner answer is required: as one answer, or as both old answers from a cached older page
- assert.equal(env.post(current({신청ID:'22222222-2222-3333-4444-555555555555',상대조건:'  '})).error,'필수 입력 및 개인정보 동의를 확인해주세요.');
- const half=application({신청ID:'33333333-2222-3333-4444-555555555555'});delete half.중요조건;assert.equal(env.post(half).ok,false);
+ // the partner answer is optional since the merge: an old page that sends only one of the two old answers leaves the stored answer alone, and a blank answer is accepted and clears it
+ const half=application({_action:'update',_token:saved.token});delete half.중요조건;assert(env.post(half).ok);assert.equal(query().상대조건,'=비흡연, 연락이 잘 되는 사람');
+ assert(env.post(current({_action:'update',_token:saved.token,상대조건:'  '})).ok);assert.equal(String(query().상대조건).trim(),'');
  // a page cached from before the change sends the two old answers and nothing else: accepted, stored as one
  const cached=env.post(application({신청ID:'44444444-2222-3333-4444-555555555555'}));assert.equal(cached.ok,true,JSON.stringify(cached));
  assert.equal(cell(3,'상대조건'),'=흡연 / 연락');assert.equal(cell(3,'자기소개'),'');assert.equal(env.post({_action:'status',신청ID:cached.id,_token:cached.token}).answers.상대조건,'=흡연 / 연락');
@@ -195,5 +195,5 @@ const linkTo=folder=>'https://drive.google.com/drive/folders/'+folder.getId();
  assert.equal(cell(3,'상대조건'),'비흡연이면 좋겠어','an explicit new answer wins over the old two');assert.equal(cell(3,'자기소개'),'요리를 잘해');assert.equal(tab()._data.length,3);assert.equal(env.live().length,6,'each of the two applications keeps exactly its three current photos');
  // the page no longer asks how the applicant found the service: an empty 유입경로 must not block a save
  const unasked=env.post(current({신청ID:'55555555-2222-3333-4444-555555555555',유입경로:''}));assert.equal(unasked.ok,true,JSON.stringify(unasked));assert.equal(tab()._data.length,4);
- console.log('PASS: 자기소개 and 상대조건 are stored, returned and editable; one partner answer is required in either form; applications from a cached older page are still accepted and can be edited later.');
+ console.log('PASS: 자기소개 and 상대조건 are stored, returned and editable; the partner answer is optional in either form; applications from a cached older page are still accepted and can be edited later.');
 }
